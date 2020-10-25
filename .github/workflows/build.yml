@@ -1,0 +1,123 @@
+name: Release
+
+on:
+  push
+
+env:
+  WGPU_NATIVE_SHA: c75e5c2c427ef0e1010551235c50e22c2f6a606d
+
+jobs:
+  release-build:
+    name: release-build - ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - name: Linux-64
+            os: ubuntu-18.04
+            RUST_TOOLCHAIN: stable
+            ARCH: 64
+            OS_NAME: linux
+            IMAGE: manylinux2010_x86_64
+          - name: MacOS-64
+            os: macOS-10.15
+            RUST_TOOLCHAIN: stable
+            ARCH: 64
+            OS_NAME: macos
+            MACOSX_DEPLOYMENT_TARGET: '10.13'
+          - name: Windows-64
+            os: vs2017-win2016
+            RUST_TOOLCHAIN: stable-msvc
+            ARCH: 64
+            OS_NAME: windows
+    steps:
+    - name: Checkout wgpu-native
+      uses: actions/checkout@v2
+      with:
+        repository: 'gfx-rs/wgpu-native'
+        ref: ${{env.WGPU_NATIVE_SHA}}
+    - name: Docker build
+      if: success() && matrix.OS_NAME == 'Linux'
+      env:
+        IMAGE: ${{ matrix.IMAGE }}
+        RUST_TOOLCHAIN: ${{ matrix.RUST_TOOLCHAIN }}
+      run: |
+          CID=$(docker create -t -w /tmp/wgpu-native -v $PWD:/tmp/src:ro quay.io/pypa/$IMAGE bash -c "\
+            cp -r /tmp/src/. . && \
+            rm -rf ./dist && \
+            export PATH=/root/.cargo/bin:\$PATH && \
+            export USER=root && \
+            curl --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain none && \
+            rustup toolchain install --no-self-update $RUST_TOOLCHAIN && \
+            rustup default $RUST_TOOLCHAIN && \
+            yum install zip -y && \
+            make package")
+          docker start -ai $CID
+          mkdir -p dist
+          docker cp $CID:/tmp/wgpu-native/dist/. dist/.
+          docker rm $CID
+    - name: Host build
+      if: success() && matrix.OS_NAME != 'Linux'
+      env:
+        RUST_TOOLCHAIN: ${{ matrix.RUST_TOOLCHAIN }}
+        MACOSX_DEPLOYMENT_TARGET: ${{ matrix.MACOSX_DEPLOYMENT_TARGET }}
+      run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --no-modify-path --default-toolchain none
+          export PATH=$HOME/.cargo/bin:$PATH
+          rustup toolchain install --no-self-update $RUST_TOOLCHAIN
+          rustup default $RUST_TOOLCHAIN
+          make package
+      shell: bash
+    - name: Pre-publish
+      env:
+        OS_NAME: ${{ matrix.OS_NAME }}
+        ARCH: ${{ matrix.ARCH }}
+      run: |
+          mkdir -p ./dist
+          mv dist/*debug*.zip ./dist/wgpu-$OS_NAME-$ARCH-debug.zip
+          mv dist/*release*.zip ./dist/wgpu-$OS_NAME-$ARCH-release.zip
+      shell: bash
+    - name: Publish
+      uses: actions/upload-artifact@v2
+      with:
+        path: dist
+        name: dist
+
+  # Create a Github release and upload the binary libs that we just built.
+  # There should be a release and debug build for each os (win32, win64, MacOS64, Linux32, Linux64),
+  # plus a file containing the commit sha.
+  publish:
+    name: Publish Github release
+    needs: [release-build]
+    runs-on: ubuntu-18.04
+    if: success()
+    steps:
+    - uses: actions/checkout@v2
+    - name: Download assets
+      uses: actions/download-artifact@v1.0.0
+      with:
+        name: dist
+    - name: Create commit-sha file
+      run: |
+        echo $WGPU_NATIVE_SHA > dist/commit-sha
+    - name: Get version from git ref
+      id: get_version
+      run: echo ::set-output name=VERSION::${GITHUB_REF/refs\/tags\//}
+    - name: Create release
+      uses: actions/create-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: V.${{env.WGPU_NATIVE_SHA}}
+        release_name: Commit ${{env.WGPU_NATIVE_SHA}}
+        body: |
+            Commit: [${{env.WGPU_NATIVE_SHA}}](https://github.com/gfx-rs/wgpu-native/commit/${{env.WGPU_NATIVE_SHA}})
+        draft: false
+        prerelease: false
+    - name: Upload Release Assets
+      # Move back to official action after fix https://github.com/actions/upload-release-asset/issues/4
+      uses: AButler/upload-release-assets@v2.0
+      with:
+        release-tag: V.${{env.WGPU_NATIVE_SHA}}
+        files: 'dist/*.zip;dist/commit-sha'
+        repo-token: ${{ secrets.GITHUB_TOKEN }}
