@@ -4,7 +4,7 @@ on:
   push
 
 env:
-  WGPU_NATIVE_SHA: b651cdc4e8bdd24836b50d90880d7ba2f6735bf6
+  WGPU_NATIVE_SHA: e369639bf94e18b7d204eed1df032f9f657e10ad
 
 jobs:
   release-build:
@@ -15,19 +15,14 @@ jobs:
         include:
           - name: Linux-64
             os: ubuntu-18.04
-            RUST_TOOLCHAIN: stable
             ARCH: 64
             OS_NAME: linux
-            IMAGE: manylinux2010_x86_64
           - name: MacOS-64
             os: macOS-10.15
-            RUST_TOOLCHAIN: stable
             ARCH: 64
             OS_NAME: macos
-            MACOSX_DEPLOYMENT_TARGET: '10.13'
           - name: Windows-64
-            os: vs2017-win2016
-            RUST_TOOLCHAIN: stable-msvc
+            os: windows-2019
             ARCH: 64
             OS_NAME: windows
     steps:
@@ -36,36 +31,15 @@ jobs:
       with:
         repository: 'gfx-rs/wgpu-native'
         ref: ${{env.WGPU_NATIVE_SHA}}
-    - name: Docker build
+    - name: Install Linux Dependencies
       if: success() && matrix.OS_NAME == 'Linux'
-      env:
-        IMAGE: ${{ matrix.IMAGE }}
-        RUST_TOOLCHAIN: ${{ matrix.RUST_TOOLCHAIN }}
       run: |
-          CID=$(docker create -t -w /tmp/wgpu-native -v $PWD:/tmp/src:ro quay.io/pypa/$IMAGE bash -c "\
-            cp -r /tmp/src/. . && \
-            rm -rf ./dist && \
-            export PATH=/root/.cargo/bin:\$PATH && \
-            export USER=root && \
-            curl --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain none && \
-            rustup toolchain install --no-self-update $RUST_TOOLCHAIN && \
-            rustup default $RUST_TOOLCHAIN && \
-            yum install zip -y && \
-            make package")
-          docker start -ai $CID
-          mkdir -p dist
-          docker cp $CID:/tmp/wgpu-native/dist/. dist/.
-          docker rm $CID
+          sudo apt-get update
+          sudo apt-get install -f -y libegl1-mesa-dev
+          sudo apt-get install -f -y mesa-vulkan-drivers
     - name: Host build
-      if: success() && matrix.OS_NAME != 'Linux'
-      env:
-        RUST_TOOLCHAIN: ${{ matrix.RUST_TOOLCHAIN }}
-        MACOSX_DEPLOYMENT_TARGET: ${{ matrix.MACOSX_DEPLOYMENT_TARGET }}
-      run: |
-          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --no-modify-path --default-toolchain none
-          export PATH=$HOME/.cargo/bin:$PATH
-          rustup toolchain install --no-self-update $RUST_TOOLCHAIN
-          rustup default $RUST_TOOLCHAIN
+      if: success()
+      run:
           make package
       shell: bash
     - name: Pre-publish
