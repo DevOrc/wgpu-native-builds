@@ -4,7 +4,7 @@ on:
   push
 
 env:
-  WGPU_NATIVE_SHA: e369639bf94e18b7d204eed1df032f9f657e10ad
+  WGPU_NATIVE_SHA: e66901e053f3032f9c4467684dcf9bcdf35fa311
 
 jobs:
   release-build:
@@ -29,6 +29,7 @@ jobs:
     - name: Checkout wgpu-native
       uses: actions/checkout@v2
       with:
+        submodules: 'true'
         repository: 'gfx-rs/wgpu-native'
         ref: ${{env.WGPU_NATIVE_SHA}}
     - name: Install Linux Dependencies
@@ -37,6 +38,10 @@ jobs:
           sudo apt-get update
           sudo apt-get install -f -y libegl1-mesa-dev
           sudo apt-get install -f -y mesa-vulkan-drivers
+    - name: Install Windows Dependencies
+      if: success() && matrix.OS_NAME == 'windows'
+      run: choco install -y --force llvm | exit 0
+      shell: bash
     - name: Host build
       if: success()
       run:
