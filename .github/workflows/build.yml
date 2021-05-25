@@ -4,7 +4,7 @@ on:
   push
 
 env:
-  WGPU_NATIVE_SHA: bf10e5581391bd618ae8bda30b275da4948ed091
+  WGPU_NATIVE_SHA: 7643e9ff7f25e0059f5fb5b62923b5b483551418
 
 jobs:
   release-build:
