@@ -4,7 +4,7 @@ on:
   push
 
 env:
-  WGPU_NATIVE_SHA: 66a4139579f2499a67b7ade1a6c3bcb414046c64
+  WGPU_NATIVE_SHA: 6dddc5567566aebc52d18bdcbc985554f5b840ae
 
 jobs:
   release-build:
@@ -40,7 +40,9 @@ jobs:
           sudo apt-get install -f -y mesa-vulkan-drivers
     - name: Install Windows Dependencies
       if: success() && matrix.OS_NAME == 'windows'
-      run: choco install -y --force llvm | exit 0
+      run: | 
+          choco install -y --force llvm | exit 0
+          echo "LIBCLANG_PATH=C:\Program Files\LLVM\lib" >> $GITHUB_ENV
       shell: bash
     - name: Host build
       if: success()
